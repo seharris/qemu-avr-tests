@@ -222,11 +222,12 @@ new file mode 100644
 index 0000000000..b03b23f04b
 --- /dev/null
 +++ b/include/hw/gpio/avr_leds.h
-@@ -0,0 +1,52 @@
+@@ -0,0 +1,53 @@
 +/*
 + * AVR LEDs/GPIO
 + *
-+ * Copyright (c) 2018 Sarah Harris <seh53@kent.ac.uk>
++ * Copyright (c) 2018 University of Kent
++ * Author: Sarah Harris
 + *
 + * Permission is hereby granted, free of charge, to any person obtaining a copy
 + * of this software and associated documentation files (the "Software"), to deal
