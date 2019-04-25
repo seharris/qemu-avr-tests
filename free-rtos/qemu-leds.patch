@@ -1,0 +1,277 @@
+diff --git a/hw/avr/Kconfig b/hw/avr/Kconfig
+index c6ca8fe775..20dba5ef73 100644
+--- a/hw/avr/Kconfig
++++ b/hw/avr/Kconfig
+@@ -1,4 +1,5 @@
+ config AVR_SAMPLE
+     bool
++    select AVR_LEDS
+     select AVR_TIMER16
+     select AVR_USART
+diff --git a/hw/avr/sample.c b/hw/avr/sample.c
+index c736a2a82b..7108531f88 100644
+--- a/hw/avr/sample.c
++++ b/hw/avr/sample.c
+@@ -47,6 +47,7 @@
+ #include "include/hw/sysbus.h"
+ #include "include/hw/char/avr_usart.h"
+ #include "include/hw/timer/avr_timer16.h"
++#include "include/hw/gpio/avr_leds.h"
+ #include "elf.h"
+ 
+ #define SIZE_FLASH 0x00040000
+@@ -70,6 +71,7 @@
+ #define TIMER1_IFR_BASE 0x36
+ #define TIMER1_PRR PRR0
+ #define TIMER1_PRR_MASK 0b01000000
++#define GPIO_A_BASE 0x20
+ 
+ /* Interrupt numbers used by peripherals */
+ #define TIMER1_CAPT_IRQ 15
+@@ -89,6 +91,7 @@ static void sample_init(MachineState *machine)
+     int bytes_loaded;
+     AVRUsartState *usart0;
+     AVRTimer16State *timer1;
++    AVRLEDsState *leds;
+     SysBusDevice *busdev;
+ 
+     address_space_mem = get_system_memory();
+@@ -141,6 +144,12 @@ static void sample_init(MachineState *machine)
+     timer1->prr_mask = TIMER1_PRR_MASK;
+     object_property_set_bool(OBJECT(timer1), true, "realized", &error_fatal);
+ 
++    /* GPIO port A built-in periphal */
++    leds = AVR_LEDS(object_new(TYPE_AVR_LEDS));
++    busdev = SYS_BUS_DEVICE(leds);
++    sysbus_mmio_map(busdev, 0, OFFSET_DATA + GPIO_A_BASE);
++    object_property_set_bool(OBJECT(leds), true, "realized", &error_fatal);
++
+     /* Load firmware (contents of flash) trying to auto-detect format */
+     firmware = machine->firmware;
+     if (firmware != NULL) {
+diff --git a/hw/gpio/Kconfig b/hw/gpio/Kconfig
+index 9227cb5598..bd0bf5f9a4 100644
+--- a/hw/gpio/Kconfig
++++ b/hw/gpio/Kconfig
+@@ -7,3 +7,6 @@ config PL061
+ 
+ config GPIO_KEY
+     bool
++
++config AVR_LEDS
++    bool
+diff --git a/hw/gpio/Makefile.objs b/hw/gpio/Makefile.objs
+index e5da0cb54f..00c73dbb2c 100644
+--- a/hw/gpio/Makefile.objs
++++ b/hw/gpio/Makefile.objs
+@@ -9,3 +9,4 @@ obj-$(CONFIG_OMAP) += omap_gpio.o
+ obj-$(CONFIG_IMX) += imx_gpio.o
+ obj-$(CONFIG_RASPI) += bcm2835_gpio.o
+ obj-$(CONFIG_NRF51_SOC) += nrf51_gpio.o
++obj-$(CONFIG_AVR_LEDS) += avr_leds.o
+diff --git a/hw/gpio/avr_leds.c b/hw/gpio/avr_leds.c
+new file mode 100644
+index 0000000000..af1f847a2e
+--- /dev/null
++++ b/hw/gpio/avr_leds.c
+@@ -0,0 +1,142 @@
++/*
++ * AVR test LEDs/GPIO
++ *
++ * Copyright (c) 2018 University of Kent
++ * Author: Sarah Harris
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++ * THE SOFTWARE.
++ */
++
++#include "qemu/osdep.h"
++#include "hw/gpio/avr_leds.h"
++#include "qemu/log.h"
++
++static void avr_leds_dump(AVRLEDsState *leds)
++{
++    int n;
++    uint8_t bit;
++    for (n = 0; n < 8; n++) {
++        bit = 1 << n;
++        if ((leds->ddr & bit) && (leds->port & bit)) {
++            printf("*");
++        } else {
++            printf("-");
++        }
++    }
++    printf("\n");
++}
++
++static void avr_leds_reset(DeviceState *dev)
++{
++    AVRLEDsState *leds = AVR_LEDS(dev);
++    leds->port = 0;
++    leds->ddr = 0;
++}
++
++static uint64_t avr_leds_read(void *opaque, hwaddr addr, unsigned int size)
++{
++    AVRLEDsState *leds = opaque;
++    assert(size == 1);
++
++    switch (addr) {
++    case LEDS_PORT:
++        return leds->port;
++    case LEDS_DDR:
++        return leds->ddr;
++    case LEDS_PIN:
++        return leds->port;
++    default:
++        qemu_log_mask(
++            LOG_GUEST_ERROR,
++            "%s: Bad offset 0x%"HWADDR_PRIx"\n",
++            __func__,
++            addr);
++    }
++    return 0;
++}
++
++static void avr_leds_write(void *opaque, hwaddr addr, uint64_t value,
++                                unsigned int size)
++{
++    AVRLEDsState *leds = opaque;
++    assert((value & 0xff) == value);
++    assert(size == 1);
++
++    switch (addr) {
++    case LEDS_PORT:
++        leds->port = value;
++        avr_leds_dump(leds);
++        break;
++    case LEDS_DDR:
++        leds->ddr = value;
++        avr_leds_dump(leds);
++        break;
++    case LEDS_PIN:
++        leds->port ^= value;
++        avr_leds_dump(leds);
++        break;
++    default:
++        qemu_log_mask(
++            LOG_GUEST_ERROR,
++            "%s: Bad offset 0x%"HWADDR_PRIx"\n",
++            __func__,
++            addr);
++    }
++}
++
++static const MemoryRegionOps avr_leds_ops = {
++    .read = avr_leds_read,
++    .write = avr_leds_write,
++    .endianness = DEVICE_NATIVE_ENDIAN,
++};
++
++static void avr_leds_init(Object *obj)
++{
++    AVRLEDsState *s = AVR_LEDS(obj);
++    memory_region_init_io(&s->mmio, obj, &avr_leds_ops, s, TYPE_AVR_LEDS, 3);
++    sysbus_init_mmio(SYS_BUS_DEVICE(obj), &s->mmio);
++}
++
++static void avr_leds_realize(DeviceState *dev, Error **errp)
++{
++    avr_leds_reset(dev);
++}
++
++static void avr_leds_class_init(ObjectClass *klass, void *data)
++{
++    DeviceClass *dc = DEVICE_CLASS(klass);
++
++    dc->reset = avr_leds_reset;
++    dc->realize = avr_leds_realize;
++}
++
++static const TypeInfo avr_leds_info = {
++    .name          = TYPE_AVR_LEDS,
++    .parent        = TYPE_SYS_BUS_DEVICE,
++    .instance_size = sizeof(AVRLEDsState),
++    .instance_init = avr_leds_init,
++    .class_init    = avr_leds_class_init,
++};
++
++static void avr_leds_register_types(void)
++{
++    type_register_static(&avr_leds_info);
++}
++
++type_init(avr_leds_register_types)
+diff --git a/include/hw/gpio/avr_leds.h b/include/hw/gpio/avr_leds.h
+new file mode 100644
+index 0000000000..b03b23f04b
+--- /dev/null
++++ b/include/hw/gpio/avr_leds.h
+@@ -0,0 +1,52 @@
++/*
++ * AVR LEDs/GPIO
++ *
++ * Copyright (c) 2018 Sarah Harris <seh53@kent.ac.uk>
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a copy
++ * of this software and associated documentation files (the "Software"), to deal
++ * in the Software without restriction, including without limitation the rights
++ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
++ * copies of the Software, and to permit persons to whom the Software is
++ * furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
++ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
++ * THE SOFTWARE.
++ */
++
++#ifndef HW_AVR_LEDS_H
++#define HW_AVR_LEDS_H
++
++#include "hw/sysbus.h"
++#include "hw/hw.h"
++
++/* Offsets of registers. */
++#define LEDS_PIN 0x00
++#define LEDS_DDR 0x01
++#define LEDS_PORT 0x02
++
++#define TYPE_AVR_LEDS "avr-leds"
++#define AVR_LEDS(obj) \
++    OBJECT_CHECK(AVRLEDsState, (obj), TYPE_AVR_LEDS)
++
++typedef struct {
++    /* <private> */
++    SysBusDevice parent_obj;
++
++    /* <public> */
++    MemoryRegion mmio;
++
++    /* GPIO Registers */
++    uint8_t pin;
++    uint8_t ddr;
++    uint8_t port;
++} AVRLEDsState;
++#endif /* HW_AVR_LEDS_H */

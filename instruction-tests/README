@@ -1,0 +1,64 @@
+This set of test programs is designed to exercise as much of the AVR instruction set as possible.
+It was built to compare QEMU's emulation to the behaviour of hardware.
+
+
+# Dependencies
+
+- `bash` and the standard GNU shell utilities are needed for processing files
+- `avr-gcc` is needed to assemble generated programs into binaries
+- `avr-gdb` is needed to monitor execution under QEMU
+
+
+# Build process.
+
+Run `build.sh` to (re)generate and compile the assembly code for every test program.
+
+Test programs are generated from templates, most of which work with several different instructions.
+`build.sh` includes a table that maps test templates to the instructions they should be applied to.
+Each test template is implemented by a Bash script in `src/`, which will take the name of one instruction and generate assembly code to standard output.
+
+Generated assembly code from each test is stored in correspondingly named files in `generated/` before being fed to the assembler.
+`src/preamble.S` and `src/postamble.S` are added to the start and end of each test's assembly code to provide entry points and other boiler plate.
+Compiled executables for the AVR are written as ELF files in `bin/`.
+
+
+# Test process.
+
+Each test case runs its target instruction many times with different parameters, executing a `break` instruction after each instance of the target instruction.
+The `break` instruction will cause the CPU to pause for debugging, allowing a GDB script to dump the state of important registers.
+The GDB script `run-all.gdb` prints the contents of the main registers, status register, program counter, and stack pointer at every `break`, looping until it reaches a symbol called `end` (added by `postamble.S`).
+
+To start avr-qemu for GDB to connect to:
+`$QEMU -s -S -bios bin/$TEST.elf`
+
+To start AVaRICE for GDB to connect to a hardware debugger:
+`avarice -g -P atmega2560 -j usb -C :1234`
+
+To start GDB with the `run-all.gdb` script (which will connect to either QEMU or AVaRICE), time its execution, and save output for analysis:
+`time avr-gdb bin/$TEST.elf -x run-all.gdb > logs/$TEST.log`
+
+Once output logs have been generated for both emulated and real hardware they can be compared with diff, for example:
+`diff -y logs/$TEST-QEMU.log logs/$TEST-AVR.log`
+
+
+# Automated test process.
+
+A package of pre-generated logs (`logs.tar.xz`) is included.
+It was generated using an ATMega2560 and an AVR Dragon hardware debugger.
+
+To run an automated test of a new version of QEMU:
+
+- build the test programs using `build.sh`
+- unpack the logs to a directory called `logs` (in the same directory as this README file)
+- modify the path to QEMU set in `verify.sh` to match your system
+- run `verify.sh` from the same directory as this README file
+
+`verify.sh` runs every test program binary found in `bin/` under QEMU and checks the GDB output against a corresponding log file in `logs/`.
+It takes tens of minutes to complete.
+
+This script is likely to be fragile!
+Testing will fail if, for example, the test programs have changed since the log files were generated.
+
+Please note that our test hardware produced strange behaviour while testing some obscure cases of the `pop` instruction (one of the SO tests).
+As a result `verify.sh` will indicate that this test has failed.
+You should either manually check the exact nature of the failure, or generate an SO log with a working version of QEMU to compare against (instead of the hardware log).

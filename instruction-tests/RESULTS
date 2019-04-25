@@ -1,0 +1,31 @@
+Testing QEMU vs ATmega2560
+BAC			Fixed
+BA			Fixed
+BAM0-31		Fixed
+BAM16-31	Pass
+BAM16-23	Fixed
+CPS			Pass
+DC			Pass
+DLS			Pass
+IA16		Pass
+IAC			Pass
+IA			Pass
+IC			Pass
+IOBT		Pass
+IOMI		Pass
+IOMO		Pass
+LDI			Pass
+LPM			Pass
+LS			Pass
+MOVW		Pass
+NOP			Pass
+RC			Pass
+RET			Pass
+SBIO		Pass
+SBR			Pass
+SRBB		Pass
+SRBL		Pass
+SRBT		Pass
+SO			Typical cases ok, strange behaviour from hardware pop when stack points to r0..r31
+UAC			Fixed
+UA			Fixed
