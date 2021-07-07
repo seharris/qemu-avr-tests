@@ -24,12 +24,17 @@ Compiled executables for the AVR are written as ELF files in `bin/`.
 
 # Test process.
 
+**Note** that testing with QEMU requires a build with `BREAKPOINT_ON_BREAK` set in `target/avr/translate.c`.
+Defining this macro makes the `BREAK` instruction behave like a GDB breakpoint (macro still exists as of 2021-07-07).
+Without this, the tests don't stop for the GDB script to record register contents.
+
 Each test case runs its target instruction many times with different parameters, executing a `break` instruction after each instance of the target instruction.
 The `break` instruction will cause the CPU to pause for debugging, allowing a GDB script to dump the state of important registers.
 The GDB script `run-all.gdb` prints the contents of the main registers, status register, program counter, and stack pointer at every `break`, looping until it reaches a symbol called `end` (added by `postamble.S`).
 
 To start avr-qemu for GDB to connect to:
-`$QEMU -s -S -bios bin/$TEST.elf`
+`$QEMU -s -S -M mega2560 -bios bin/$TEST.elf`
+(`-display none` can also be useful for builds of QEMU that try to open a graphical window by default)
 
 To start AVaRICE for GDB to connect to a hardware debugger:
 `avarice -g -P atmega2560 -j usb -C :1234`

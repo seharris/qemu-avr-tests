@@ -1,1 +1,3 @@
 Tests used to validate AVR emulation in QEMU, see directory specific README files.
+Please note that these were developed for academic work during 2018-19 and haven't had much attention since.
+They aren't being maintained!
